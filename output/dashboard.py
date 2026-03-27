@@ -70,18 +70,18 @@ def _gather_dashboard_data(date_str):
             ORDER BY g.game_time ASC
         """, (date_str, date_str)).fetchall()
 
-        # Season stats
+        # Season stats (prefer lineup_lock picks when available, else morning)
         season_stats = conn.execute("""
             SELECT
                 COUNT(*) as total,
                 SUM(CASE WHEN correct = 1 THEN 1 ELSE 0 END) as wins,
                 SUM(CASE WHEN correct = 0 THEN 1 ELSE 0 END) as losses,
                 SUM(CASE WHEN correct IS NULL THEN 1 ELSE 0 END) as pending
-            FROM picks
-            WHERE pick_date >= ? AND run_type IN (
-                SELECT run_type FROM picks GROUP BY pick_date
-                HAVING run_type = MAX(run_type)
-            )
+            FROM picks p
+            WHERE pick_date >= ?
+              AND run_type = (
+                SELECT MAX(p2.run_type) FROM picks p2 WHERE p2.game_id = p.game_id
+              )
         """, (f"{SEASON}-01-01",)).fetchone()
 
         # Accuracy by tier
