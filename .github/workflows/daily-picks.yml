@@ -20,6 +20,10 @@ on:
           - morning
           - lineup_lock
           - results
+      date:
+        description: 'Date override (YYYY-MM-DD, leave empty for today/yesterday)'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -73,7 +77,12 @@ jobs:
           fi
 
       - name: Run scheduler
-        run: python scheduler.py ${{ steps.mode.outputs.mode }}
+        run: |
+          DATE_ARG=""
+          if [ -n "${{ inputs.date }}" ]; then
+            DATE_ARG="--date ${{ inputs.date }}"
+          fi
+          python scheduler.py ${{ steps.mode.outputs.mode }} $DATE_ARG
 
       - name: Regenerate dashboard for today
         run: python -c "from output.dashboard import generate_dashboard; from datetime import datetime; generate_dashboard(datetime.now().strftime('%Y-%m-%d'))"
