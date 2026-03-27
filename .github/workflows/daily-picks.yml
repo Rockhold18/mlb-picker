@@ -1,0 +1,98 @@
+name: MLB Daily Picks
+
+on:
+  schedule:
+    # All times in UTC (ET + 4 during DST)
+    - cron: '0 12 * * *'   # 8 AM ET — morning picks
+    - cron: '0 15 * * *'   # 11 AM ET — lineup lock 1
+    - cron: '0 18 * * *'   # 2 PM ET — lineup lock 2
+    - cron: '0 21 * * *'   # 5 PM ET — lineup lock 3
+    - cron: '0 0 * * *'    # 8 PM ET — lineup lock 4
+    - cron: '0 5 * * *'    # 1 AM ET — results
+  workflow_dispatch:        # Manual trigger from GitHub UI
+    inputs:
+      mode:
+        description: 'Run mode'
+        required: true
+        default: 'morning'
+        type: choice
+        options:
+          - morning
+          - lineup_lock
+          - results
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  run-picks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Restore database
+        run: |
+          # Download DB artifact from previous run if it exists
+          gh run download --name mlb-picker-db --dir . 2>/dev/null || echo "No previous DB found, starting fresh"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Initialize (first run only)
+        if: ${{ !hashFiles('mlb_picker.db') }}
+        run: python main.py init
+
+      - name: Determine run mode
+        id: mode
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "mode=${{ inputs.mode }}" >> $GITHUB_OUTPUT
+          else
+            HOUR=$(date -u +%H)
+            case $HOUR in
+              12) echo "mode=morning" >> $GITHUB_OUTPUT ;;
+              05) echo "mode=results" >> $GITHUB_OUTPUT ;;
+              *)  echo "mode=lineup_lock" >> $GITHUB_OUTPUT ;;
+            esac
+          fi
+
+      - name: Run scheduler
+        run: python scheduler.py ${{ steps.mode.outputs.mode }}
+
+      - name: Save database artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mlb-picker-db
+          path: mlb_picker.db
+          retention-days: 90
+          overwrite: true
+
+      - name: Prepare Pages content
+        run: |
+          mkdir -p _site
+          cp output/mlb_picks.html _site/index.html
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy-dashboard:
+    needs: run-picks
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+*.db
+model/trained_model.pkl
+model/scaler.pkl
+logs/
+output/mlb_picks.html
+.DS_Store
