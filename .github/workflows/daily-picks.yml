@@ -52,10 +52,15 @@ jobs:
             cp /tmp/db-restore/mlb_picker.db . 2>/dev/null && \
             echo "DB restored" || echo "No previous DB found"
 
-          gh run download --name mlb-picker-model --dir /tmp/model-restore 2>/dev/null && \
-            cp /tmp/model-restore/model/trained_model.pkl model/ 2>/dev/null && \
-            cp /tmp/model-restore/model/scaler.pkl model/ 2>/dev/null && \
-            echo "Model restored" || echo "No previous model found"
+          if gh run download --name mlb-picker-model --dir /tmp/model-restore 2>/dev/null; then
+            echo "Model artifact downloaded. Contents:"
+            find /tmp/model-restore -type f
+            find /tmp/model-restore -name "trained_model.pkl" -exec cp {} model/ \;
+            find /tmp/model-restore -name "scaler.pkl" -exec cp {} model/ \;
+            echo "Model restored"
+          else
+            echo "No previous model found"
+          fi
 
           echo "--- File check ---"
           ls -la mlb_picker.db 2>/dev/null || echo "  mlb_picker.db: MISSING"
