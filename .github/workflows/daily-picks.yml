@@ -40,21 +40,22 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Restore database
+      - name: Restore database and model
         run: |
-          # Download DB artifact from previous run if it exists
-          gh run download --name mlb-picker-db --dir . 2>/dev/null || echo "No previous DB found, starting fresh"
-          ls -la mlb_picker.db 2>/dev/null || echo "No DB file after restore"
+          # Download artifacts from previous run if they exist
+          gh run download --name mlb-picker-db --dir . 2>/dev/null || echo "No previous DB found"
+          gh run download --name mlb-picker-model --dir . 2>/dev/null || echo "No previous model found"
+          ls -la mlb_picker.db model/trained_model.pkl 2>/dev/null || echo "Some files missing after restore"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Initialize (first run only)
         run: |
-          if [ ! -f mlb_picker.db ]; then
-            echo "No database found — running init..."
+          if [ ! -f mlb_picker.db ] || [ ! -f model/trained_model.pkl ]; then
+            echo "Database or model missing — running init..."
             python main.py init
           else
-            echo "Database restored from artifact, skipping init"
+            echo "Database and model restored from artifacts, skipping init"
           fi
 
       - name: Determine run mode
@@ -82,6 +83,16 @@ jobs:
         with:
           name: mlb-picker-db
           path: mlb_picker.db
+          retention-days: 90
+          overwrite: true
+
+      - name: Save model artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mlb-picker-model
+          path: |
+            model/trained_model.pkl
+            model/scaler.pkl
           retention-days: 90
           overwrite: true
 
