@@ -1,6 +1,6 @@
 __pycache__/
 *.pyc
-*.db
+mlb_picker.db
 model/trained_model.pkl
 model/scaler.pkl
 logs/

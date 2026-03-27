@@ -71,11 +71,22 @@ jobs:
 
       - name: Initialize (first run only)
         run: |
+          # Use seed files if artifacts weren't restored
+          if [ ! -f mlb_picker.db ] && [ -f seed/mlb_picker.db ]; then
+            echo "Using seed database"
+            cp seed/mlb_picker.db .
+          fi
+          if [ ! -f model/trained_model.pkl ] && [ -f seed/trained_model.pkl ]; then
+            echo "Using seed model"
+            cp seed/trained_model.pkl model/
+            cp seed/scaler.pkl model/
+          fi
+
           if [ ! -f mlb_picker.db ] || [ ! -f model/trained_model.pkl ]; then
             echo "Database or model missing — running init..."
             python main.py init
           else
-            echo "Database and model restored from artifacts, skipping init"
+            echo "Database and model ready, skipping init"
           fi
 
       - name: Determine run mode
