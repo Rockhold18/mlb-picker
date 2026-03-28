@@ -63,12 +63,15 @@ def _gather_dashboard_data(date_str):
                    (SELECT wrc_plus_vs_rhp FROM team_stats WHERE team_name = g.away_team AND wrc_plus_vs_rhp IS NOT NULL ORDER BY season DESC LIMIT 1) as away_wrc_vs_rhp
             FROM picks p
             JOIN games g ON p.game_id = g.game_id
-            WHERE p.pick_date = ? AND p.run_type = (
-                SELECT run_type FROM picks WHERE pick_date = ? ORDER BY
-                CASE run_type WHEN 'lineup_lock' THEN 0 ELSE 1 END LIMIT 1
-            )
+            WHERE p.pick_date = ?
+              AND p.run_type = (
+                SELECT p2.run_type FROM picks p2
+                WHERE p2.game_id = p.game_id
+                ORDER BY CASE p2.run_type WHEN 'lineup_lock' THEN 0 ELSE 1 END
+                LIMIT 1
+              )
             ORDER BY g.game_time ASC
-        """, (date_str, date_str)).fetchall()
+        """, (date_str,)).fetchall()
 
         # Season stats (prefer lineup_lock picks when available, else morning)
         season_stats = conn.execute("""
