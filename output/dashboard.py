@@ -87,25 +87,37 @@ def _gather_dashboard_data(date_str):
               )
         """, (f"{SEASON}-01-01",)).fetchone()
 
-        # Accuracy by tier
+        # Accuracy by tier (best pick per game only)
         tier_stats = conn.execute("""
             SELECT
                 confidence,
                 COUNT(*) as total,
                 SUM(CASE WHEN correct = 1 THEN 1 ELSE 0 END) as wins,
                 SUM(CASE WHEN correct = 0 THEN 1 ELSE 0 END) as losses
-            FROM picks
+            FROM picks p
             WHERE correct IS NOT NULL AND pick_date >= ?
+              AND run_type = (
+                SELECT p2.run_type FROM picks p2
+                WHERE p2.game_id = p.game_id
+                ORDER BY CASE p2.run_type WHEN 'lineup_lock' THEN 0 ELSE 1 END
+                LIMIT 1
+              )
             GROUP BY confidence
         """, (f"{SEASON}-01-01",)).fetchall()
 
-        # Recent results (last 14 days with results)
+        # Recent results (last 14 days with results, best pick per game)
         recent = conn.execute("""
             SELECT pick_date,
                 COUNT(*) as total,
                 SUM(CASE WHEN correct = 1 THEN 1 ELSE 0 END) as wins
-            FROM picks
+            FROM picks p
             WHERE correct IS NOT NULL AND pick_date >= ?
+              AND run_type = (
+                SELECT p2.run_type FROM picks p2
+                WHERE p2.game_id = p.game_id
+                ORDER BY CASE p2.run_type WHEN 'lineup_lock' THEN 0 ELSE 1 END
+                LIMIT 1
+              )
             GROUP BY pick_date
             ORDER BY pick_date DESC
             LIMIT 14
@@ -118,16 +130,20 @@ def _gather_dashboard_data(date_str):
             ORDER BY pick_date DESC
         """, (f"{SEASON}-01-01",)).fetchall()
 
-        # All picks for history (grouped by date)
+        # All picks for history (best pick per game, grouped by date)
         all_picks = conn.execute("""
             SELECT p.*, g.home_team, g.away_team, g.home_starter_name, g.away_starter_name,
                    g.game_time, g.home_score, g.away_score, g.winner as game_winner, g.status
             FROM picks p
             JOIN games g ON p.game_id = g.game_id
             WHERE p.pick_date >= ?
-            ORDER BY p.pick_date DESC,
-                CASE p.confidence WHEN 'HIGH' THEN 0 WHEN 'MEDIUM' THEN 1 ELSE 2 END,
-                p.home_win_prob DESC
+              AND p.run_type = (
+                SELECT p2.run_type FROM picks p2
+                WHERE p2.game_id = p.game_id
+                ORDER BY CASE p2.run_type WHEN 'lineup_lock' THEN 0 ELSE 1 END
+                LIMIT 1
+              )
+            ORDER BY p.pick_date DESC, g.game_time ASC
         """, (f"{SEASON}-01-01",)).fetchall()
 
         # Current streak
