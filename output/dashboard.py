@@ -149,15 +149,96 @@ def _gather_dashboard_data(date_str):
         # Current streak
         streak = _compute_streak(conn)
 
+    # Enrich picks with series state
+    today_picks_dicts = [dict(r) for r in today_picks]
+    all_picks_dicts = [dict(r) for r in all_picks]
+    _enrich_series_state(today_picks_dicts, date_str)
+    _enrich_series_state(all_picks_dicts)
+
     return {
-        "today_picks": [dict(r) for r in today_picks],
+        "today_picks": today_picks_dicts,
         "season_stats": dict(season_stats) if season_stats else {"total": 0, "wins": 0, "losses": 0, "pending": 0},
         "tier_stats": {r["confidence"]: dict(r) for r in tier_stats},
         "recent": [dict(r) for r in recent],
         "pick_dates": [r["pick_date"] for r in pick_dates],
-        "all_picks": [dict(r) for r in all_picks],
+        "all_picks": all_picks_dicts,
         "streak": streak,
     }
+
+
+def _enrich_series_state(picks_list, default_date=None):
+    """Add series_info to each pick dict by looking at recent games between the same teams."""
+    if not picks_list:
+        return
+
+    with get_db() as conn:
+        for pick in picks_list:
+            game_date = pick.get("pick_date") or default_date
+            home = pick.get("home_team")
+            away = pick.get("away_team")
+
+            if not game_date or not home or not away:
+                pick["series_info"] = None
+                continue
+
+            # Look back up to 4 days for games between these teams at this venue
+            prior_games = conn.execute("""
+                SELECT game_date, winner FROM games
+                WHERE home_team = ? AND away_team = ?
+                  AND game_date < ? AND game_date >= date(?, '-4 days')
+                  AND status = 'Final' AND winner IS NOT NULL
+                ORDER BY game_date ASC
+            """, (home, away, game_date, game_date)).fetchall()
+
+            if not prior_games:
+                pick["series_info"] = {"game_num": 1, "label": "Game 1", "flag": None}
+                continue
+
+            # Filter to consecutive days (actual series, not random games weeks apart)
+            from datetime import datetime, timedelta
+            game_dt = datetime.strptime(game_date, "%Y-%m-%d")
+            series = []
+            for i, pg in enumerate(reversed(prior_games)):
+                expected_date = (game_dt - timedelta(days=i + 1)).strftime("%Y-%m-%d")
+                if pg["game_date"] == expected_date:
+                    series.insert(0, pg["winner"])
+                else:
+                    break
+
+            game_num = len(series) + 1
+            home_wins = sum(1 for w in series if w == "home")
+            away_wins = sum(1 for w in series if w == "away")
+
+            # Build label
+            if game_num == 1:
+                label = "Game 1"
+                flag = None
+            elif game_num == 2:
+                g1_winner = home if series[0] == "home" else away
+                label = f"Game 2 ({g1_winner} won G1)"
+                flag = "momentum"
+            elif game_num == 3:
+                label = f"Game 3 ({home} {home_wins}-{away_wins})"
+                if home_wins == 2 or away_wins == 2:
+                    sweeper = home if home_wins == 2 else away
+                    label = f"Game 3 ({sweeper} sweep attempt)"
+                    flag = "sweep"
+                elif home_wins == 1 and away_wins == 1:
+                    label = "Game 3 (series tied 1-1)"
+                    flag = "rubber"
+                else:
+                    flag = None
+            else:
+                label = f"Game {game_num} ({home} {home_wins}-{away_wins})"
+                flag = "sweep" if home_wins == 3 or away_wins == 3 else None
+
+            pick["series_info"] = {
+                "game_num": game_num,
+                "home_wins": home_wins,
+                "away_wins": away_wins,
+                "label": label,
+                "flag": flag,
+            }
 
 
 def _compute_streak(conn):
@@ -585,14 +666,29 @@ function buildReasoning(p, isHomePick) {
     const hfLabel = isHomePick ? `Home field: ${pick} at home` : `Road pick: ${pick} away`;
     factors.push({ label: hfLabel, favors: isHomePick ? 'pick' : 'against', strength: isHomePick ? 0.5 : 0.5, maxStrength: 1 });
 
+    // 6. Series context
+    if (p.series_info && p.series_info.game_num > 1) {
+        let seriesLabel = p.series_info.label;
+        let seriesFavors = 'neutral';
+        if (p.series_info.flag === 'sweep') {
+            // Sweep attempts favor the trailing team (sweep resistance)
+            const sweeper = p.series_info.home_wins > p.series_info.away_wins ? p.home_team : p.away_team;
+            seriesFavors = (pick === sweeper) ? 'against' : 'pick';
+            seriesLabel += ' ⚠';
+        } else if (p.series_info.flag === 'momentum' && p.series_info.game_num === 2) {
+            // G1 winner has momentum in G2
+            const g1Winner = p.series_info.home_wins > 0 ? p.home_team : p.away_team;
+            seriesFavors = (pick === g1Winner) ? 'pick' : 'against';
+        }
+        factors.push({ label: seriesLabel, favors: seriesFavors, strength: 0.5, maxStrength: 1 });
+    }
+
     if (factors.length === 0) return '';
 
     let html = `<div class="card-reasoning"><div class="reasoning-title">Model Reasoning</div><div class="reasoning-factors">`;
     factors.forEach(f => {
         const cls = f.favors === 'pick' ? 'favors-pick' : (f.favors === 'against' ? 'against-pick' : 'neutral');
         const icon = f.favors === 'pick' ? '&#9650;' : (f.favors === 'against' ? '&#9660;' : '&#9679;');
-        const barPct = Math.min((f.strength / f.maxStrength) * 100, 100);
-        const barColor = f.favors === 'pick' ? 'var(--green)' : (f.favors === 'against' ? 'var(--red)' : 'var(--gray)');
         html += `<div class="factor">
             <span class="factor-label">${f.label}</span>
             <span class="factor-value ${cls}">${icon}</span>
