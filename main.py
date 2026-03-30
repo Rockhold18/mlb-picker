@@ -105,7 +105,23 @@ def refresh_data(date_str, season=None):
             ))
             pitchers_updated += 1
 
-        print(f"  Updated {pitchers_updated}/{len(starter_ids)} pitchers\n")
+        print(f"  Updated {pitchers_updated}/{len(starter_ids)} pitchers")
+
+        # 3b. Fetch throwing hand for any pitcher missing it
+        from data.mlb_api import get_pitcher_hand
+        missing_hand = conn.execute(
+            "SELECT DISTINCT player_id FROM pitcher_stats WHERE throw_hand IS NULL AND player_id IS NOT NULL"
+        ).fetchall()
+        if missing_hand:
+            hands_fetched = 0
+            for row in missing_hand:
+                hand = get_pitcher_hand(row["player_id"])
+                if hand:
+                    conn.execute("UPDATE pitcher_stats SET throw_hand = ? WHERE player_id = ?",
+                                 (hand, row["player_id"]))
+                    hands_fetched += 1
+            print(f"  Fetched throwing hand for {hands_fetched} pitchers")
+        print()
 
         # 4. Pull team records
         print("Fetching team records...")
