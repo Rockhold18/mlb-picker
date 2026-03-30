@@ -95,12 +95,20 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "mode=${{ inputs.mode }}" >> $GITHUB_OUTPUT
           else
-            HOUR=$(date -u +%H)
-            case $HOUR in
-              12) echo "mode=morning" >> $GITHUB_OUTPUT ;;
-              05) echo "mode=results" >> $GITHUB_OUTPUT ;;
-              *)  echo "mode=lineup_lock" >> $GITHUB_OUTPUT ;;
+            CRON="${{ github.event.schedule }}"
+            case "$CRON" in
+              "0 12 * * *") echo "mode=morning" >> $GITHUB_OUTPUT ;;
+              "0 5 * * *")  echo "mode=results" >> $GITHUB_OUTPUT ;;
+              *)            echo "mode=lineup_lock" >> $GITHUB_OUTPUT ;;
             esac
+            if [ -f mlb_picker.db ]; then
+              TODAY=$(date -u +%Y-%m-%d)
+              COUNT=$(python3 -c "import sqlite3; c=sqlite3.connect('mlb_picker.db'); print(c.execute(\"SELECT COUNT(*) FROM picks WHERE pick_date='$TODAY' AND run_type='morning'\").fetchone()[0]); c.close()" 2>/dev/null || echo "0")
+              if [ "$COUNT" = "0" ]; then
+                echo "No morning picks for today — overriding to morning mode"
+                echo "mode=morning" >> $GITHUB_OUTPUT
+              fi
+            fi
           fi
 
       - name: Run scheduler
