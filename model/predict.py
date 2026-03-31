@@ -188,6 +188,26 @@ def predict_games(date_str, run_type="morning"):
 
             home_win_prob = model.predict_proba(feat_scaled)[0][1]
 
+            # Detect opener/spot starter situation
+            home_opener = _is_probable_opener(game["home_starter_id"], conn)
+            away_opener = _is_probable_opener(game["away_starter_id"], conn)
+            opener_flag = None
+
+            if home_opener or away_opener:
+                # Dampen probability toward 50% — we don't know who's really pitching
+                # Shrink distance from 0.5 by 40%
+                DAMPEN = 0.40
+                dampened = 0.5 + (home_win_prob - 0.5) * (1 - DAMPEN)
+                if home_opener and away_opener:
+                    opener_flag = "both"
+                elif home_opener:
+                    opener_flag = "home"
+                else:
+                    opener_flag = "away"
+                logger.info(f"  Opener detected ({opener_flag}): {game['away_team']} @ {game['home_team']} — "
+                           f"prob {home_win_prob:.0%} → {dampened:.0%}")
+                home_win_prob = dampened
+
             # Determine pick and confidence
             if home_win_prob >= 0.5:
                 predicted_winner = game["home_team"]
@@ -216,6 +236,7 @@ def predict_games(date_str, run_type="morning"):
                 "home_win_prob": round(home_win_prob, 4),
                 "pick_prob": round(pick_prob, 4),
                 "confidence": confidence,
+                "opener_flag": opener_flag,
             }
             picks.append(pick)
 
@@ -266,4 +287,49 @@ def print_predictions(picks, date_str, run_type="morning"):
 
     print(f"  {'─'*55}")
     print(f"  High-confidence picks: {high_count} | Total games: {len(picks)}")
+    opener_games = [p for p in picks if p.get("opener_flag")]
+    if opener_games:
+        print(f"  ⚠ Opener detected in {len(opener_games)} game(s) — confidence dampened")
     print()
+
+
+# Opener detection thresholds
+OPENER_MAX_IP = 20      # Pitcher with <20 career IP is likely an opener
+OPENER_MAX_GS = 5       # Pitcher with <5 career starts is likely an opener
+OPENER_MIN_GP_RATIO = 3 # GP/GS ratio >3 means mostly a reliever
+
+
+def _is_probable_opener(pitcher_id, conn):
+    """Detect if a listed starter is likely an opener or spot starter.
+
+    Checks:
+    - Less than 20 IP (very limited experience)
+    - Less than 5 career starts (reliever being used as opener)
+    - GP/GS ratio > 3 (reliever profile, not a starter)
+
+    Returns True if the pitcher looks like an opener.
+    """
+    if not pitcher_id:
+        return False
+
+    row = conn.execute("""
+        SELECT innings_pitched, games_started,
+               (SELECT COUNT(*) FROM pitcher_stats ps2
+                WHERE ps2.player_id = ps.player_id) as seasons
+        FROM pitcher_stats ps
+        WHERE player_id = ?
+        ORDER BY season DESC LIMIT 1
+    """, (pitcher_id,)).fetchone()
+
+    if not row:
+        return True  # Unknown pitcher — treat as opener
+
+    ip = row["innings_pitched"] or 0
+    gs = row["games_started"] or 0
+
+    if ip < OPENER_MAX_IP:
+        return True
+    if gs < OPENER_MAX_GS:
+        return True
+
+    return False

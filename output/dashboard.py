@@ -460,6 +460,13 @@ h1 { font-size: 24px; font-weight: 700; letter-spacing: -0.5px; }
 .detail-item { display: flex; justify-content: space-between; }
 .detail-value { color: var(--text); font-weight: 500; }
 
+.card-opener-warning {
+    margin-top: 10px; padding: 8px 12px; border-radius: 8px;
+    background: rgba(251, 191, 36, 0.1); border: 1px solid rgba(251, 191, 36, 0.25);
+    font-size: 11px; font-weight: 500; color: var(--yellow);
+    line-height: 1.4;
+}
+
 .card-reasoning {
     margin-top: 12px; padding: 10px 12px; border-radius: 8px;
     background: rgba(77, 159, 255, 0.06); border: 1px solid rgba(77, 159, 255, 0.12);
@@ -749,6 +756,18 @@ function renderTodayTab() {
         const probPct = (pickProb * 100).toFixed(0);
         const barWidth = Math.max(probPct - 40, 5);
 
+        // Detect opener situation from pitcher IP
+        const homeOpener = p.home_ip !== null && p.home_ip < 20;
+        const awayOpener = p.away_ip !== null && p.away_ip < 20;
+        const hasOpener = homeOpener || awayOpener;
+        let openerHtml = '';
+        if (hasOpener) {
+            const who = homeOpener ? p.home_starter_name : p.away_starter_name;
+            const team = homeOpener ? p.home_team : p.away_team;
+            const ip = homeOpener ? p.home_ip : p.away_ip;
+            openerHtml = `<div class="card-opener-warning">&#9888; Probable opener: ${who} (${team}, ${ip ? ip.toFixed(1) : '?'} IP) — check who pitches after</div>`;
+        }
+
         let resultHtml = '';
         if (p.status === 'Final' && p.game_winner) {
             const correct = p.predicted_winner === (p.game_winner === 'home' ? p.home_team : p.away_team);
@@ -787,6 +806,7 @@ function renderTodayTab() {
                 </div>
                 <div class="prob-value">${probPct}%</div>
             </div>
+            ${openerHtml}
             ${reasoningHtml}
             ${resultHtml}
         </div>`;
