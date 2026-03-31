@@ -153,6 +153,7 @@ def get_pitcher_season_stats(player_id, season=None):
             if try_season != season:
                 logger.info(f"  Using {try_season} stats for pitcher {player_id} (no {season} data)")
             break
+        time.sleep(REQUEST_DELAY)
     else:
         return None
 
@@ -179,6 +180,7 @@ def get_pitcher_season_stats(player_id, season=None):
         "k_per_9": round(k * 9 / ip, 2) if ip > 0 else None,
         "bb_per_9": round(bb * 9 / ip, 2) if ip > 0 else None,
         "player_name": None,  # filled by caller from schedule data
+        "actual_season": try_season,  # which season this data came from
     }
 
 

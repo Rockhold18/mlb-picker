@@ -88,7 +88,9 @@ def refresh_data(date_str, season=None):
 
             fip = compute_fip_from_stats(stats)
             name = starter_names.get(pid, "Unknown")
+            actual_season = stats.get("actual_season", season)
 
+            # Store under the actual season the data came from
             conn.execute("""
                 INSERT OR REPLACE INTO pitcher_stats
                 (player_id, player_name, team, season, era, fip,
@@ -96,13 +98,31 @@ def refresh_data(date_str, season=None):
                  home_runs, walks, hbp, strikeouts, hits, games_started)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                pid, name, None, season,
+                pid, name, None, actual_season,
                 float(stats["era"]) if stats["era"] else None,
                 fip,
                 stats["k_per_9"], stats["bb_per_9"], stats["ip"],
                 stats["hr"], stats["bb"], stats["hbp"], stats["k"],
                 stats["hits"], stats["games_started"],
             ))
+
+            # If we used a fallback season, also store a current-season row
+            # so the model can find the pitcher for the current year
+            if actual_season != season:
+                conn.execute("""
+                    INSERT OR IGNORE INTO pitcher_stats
+                    (player_id, player_name, team, season, era, fip,
+                     k_per_9, bb_per_9, innings_pitched,
+                     home_runs, walks, hbp, strikeouts, hits, games_started)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    pid, name, None, season,
+                    float(stats["era"]) if stats["era"] else None,
+                    fip,
+                    stats["k_per_9"], stats["bb_per_9"], stats["ip"],
+                    stats["hr"], stats["bb"], stats["hbp"], stats["k"],
+                    stats["hits"], stats["games_started"],
+                ))
             pitchers_updated += 1
 
         print(f"  Updated {pitchers_updated}/{len(starter_ids)} pitchers")
