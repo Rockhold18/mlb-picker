@@ -127,7 +127,37 @@ def refresh_data(date_str, season=None):
 
         print(f"  Updated {pitchers_updated}/{len(starter_ids)} pitchers")
 
-        # 3b. Fetch throwing hand for any pitcher missing it
+        # 3b. Ensure previous season stats exist for opener detection
+        prev_season = season - 1
+        missing_prev = conn.execute("""
+            SELECT DISTINCT ps.player_id, ps.player_name FROM pitcher_stats ps
+            WHERE ps.player_id IN ({})
+              AND NOT EXISTS (SELECT 1 FROM pitcher_stats ps2 WHERE ps2.player_id = ps.player_id AND ps2.season = ?)
+        """.format(",".join(str(pid) for pid in starter_ids if pid)), (prev_season,)).fetchall()
+        if missing_prev:
+            prev_fetched = 0
+            for row in missing_prev:
+                prev_stats = get_pitcher_season_stats(row["player_id"], prev_season)
+                if prev_stats and prev_stats.get("actual_season") == prev_season and prev_stats["ip"] > 0:
+                    prev_fip = compute_fip_from_stats(prev_stats)
+                    conn.execute("""
+                        INSERT OR IGNORE INTO pitcher_stats
+                        (player_id, player_name, team, season, era, fip,
+                         k_per_9, bb_per_9, innings_pitched,
+                         home_runs, walks, hbp, strikeouts, hits, games_started)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        row["player_id"], row["player_name"], None, prev_season,
+                        float(prev_stats["era"]) if prev_stats["era"] else None, prev_fip,
+                        prev_stats["k_per_9"], prev_stats["bb_per_9"], prev_stats["ip"],
+                        prev_stats["hr"], prev_stats["bb"], prev_stats["hbp"], prev_stats["k"],
+                        prev_stats["hits"], prev_stats["games_started"],
+                    ))
+                    prev_fetched += 1
+            if prev_fetched:
+                print(f"  Backfilled {prev_fetched} pitcher {prev_season} stats for opener detection")
+
+        # 3c. Fetch throwing hand for any pitcher missing it
         from data.mlb_api import get_pitcher_hand
         missing_hand = conn.execute(
             "SELECT DISTINCT player_id FROM pitcher_stats WHERE throw_hand IS NULL AND player_id IS NOT NULL"
