@@ -311,12 +311,18 @@ def _is_probable_opener(pitcher_id, conn):
 
     row = conn.execute("""
         SELECT SUM(COALESCE(games_started, 0)) as career_gs,
-               SUM(COALESCE(innings_pitched, 0)) as career_ip
+               SUM(COALESCE(innings_pitched, 0)) as career_ip,
+               COUNT(*) as num_rows
         FROM pitcher_stats
         WHERE player_id = ?
     """, (pitcher_id,)).fetchone()
 
     if not row or row["career_gs"] is None:
+        logger.info(f"    Opener check pid={pitcher_id}: NOT IN DB")
         return True  # Unknown pitcher — treat as opener
 
-    return row["career_gs"] < OPENER_MAX_CAREER_GS
+    is_opener = row["career_gs"] < OPENER_MAX_CAREER_GS
+    if is_opener:
+        logger.info(f"    Opener check pid={pitcher_id}: career_gs={row['career_gs']}, career_ip={row['career_ip']}, rows={row['num_rows']} → OPENER")
+
+    return is_opener
