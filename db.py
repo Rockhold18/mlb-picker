@@ -55,11 +55,9 @@ CREATE TABLE IF NOT EXISTS team_stats (
     season INTEGER,
     wins INTEGER,
     losses INTEGER,
-    ops REAL,
     wrc_plus REAL,
     wrc_plus_vs_lhp REAL,
     wrc_plus_vs_rhp REAL,
-    team_era REAL,
     bullpen_era REAL,
     updated_at TEXT DEFAULT (datetime('now')),
     PRIMARY KEY (team_id, season)
@@ -99,6 +97,9 @@ CREATE TABLE IF NOT EXISTS win_total_priors (
 
 CREATE INDEX IF NOT EXISTS idx_games_date ON games(game_date);
 CREATE INDEX IF NOT EXISTS idx_picks_date ON picks(pick_date);
+CREATE INDEX IF NOT EXISTS idx_picks_game_id ON picks(game_id);
+CREATE INDEX IF NOT EXISTS idx_pitcher_stats_player ON pitcher_stats(player_id);
+CREATE INDEX IF NOT EXISTS idx_team_stats_name ON team_stats(team_name);
 """
 
 

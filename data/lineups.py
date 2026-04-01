@@ -70,18 +70,15 @@ def _compute_lineup_ops(batter_ids, pitcher_hand, conn, season):
         if not splits:
             continue
 
-        bat_side = splits.get("bat_side")
-
-        # Determine which split to use
+        # Use the batter's split against the opposing pitcher's hand.
+        # Switch hitters (S) always bat from the opposite side, so they
+        # get their vs-LHP stats when facing a LHP (batting right-handed)
+        # and vs-RHP stats when facing a RHP (batting left-handed).
+        # This is the same lookup regardless of bat side.
         if pitcher_hand == "L":
             ops = splits.get("ops_vs_lhp")
-            # Switch hitter vs LHP bats right-handed (platoon advantage)
-            if bat_side == "S" and splits.get("ops_vs_lhp") is not None:
-                ops = splits["ops_vs_lhp"]
-        else:  # pitcher_hand == "R"
+        else:
             ops = splits.get("ops_vs_rhp")
-            if bat_side == "S" and splits.get("ops_vs_rhp") is not None:
-                ops = splits["ops_vs_rhp"]
 
         if ops is not None:
             ops_values.append(ops)

@@ -15,6 +15,29 @@ from config import MLB_API_BASE, REQUEST_TIMEOUT, REQUEST_DELAY, TEAM_ID_TO_ABBR
 
 logger = logging.getLogger(__name__)
 
+
+def _get_et_offset(dt_utc):
+    """Calculate UTC offset for US Eastern Time (handles DST properly).
+
+    DST runs from second Sunday of March at 2 AM to first Sunday of November at 2 AM.
+    During DST: ET = UTC - 4. During EST: ET = UTC - 5.
+    """
+    year = dt_utc.year
+    # Second Sunday of March
+    mar1 = datetime(year, 3, 1)
+    dst_start = mar1 + timedelta(days=(6 - mar1.weekday()) % 7 + 7)  # second Sunday
+    dst_start = dst_start.replace(hour=7)  # 2 AM ET = 7 AM UTC
+
+    # First Sunday of November
+    nov1 = datetime(year, 11, 1)
+    dst_end = nov1 + timedelta(days=(6 - nov1.weekday()) % 7)  # first Sunday
+    dst_end = dst_end.replace(hour=6)  # 2 AM ET = 6 AM UTC (still DST at that point)
+
+    if dst_start <= dt_utc < dst_end:
+        return 4  # EDT
+    return 5  # EST
+
+
 # Persistent session with retry logic
 _session = None
 
@@ -78,11 +101,7 @@ def get_schedule(date_str):
             if game_date_raw:
                 try:
                     dt_utc = datetime.strptime(game_date_raw, "%Y-%m-%dT%H:%M:%SZ")
-                    # Determine ET offset: DST (Mar second Sun – Nov first Sun) = -4, else -5
-                    # Approximate: Apr-Oct is -4, Nov-Mar is -5 (close enough for game times)
-                    month = dt_utc.month
-                    et_offset = 4 if 3 <= month <= 10 else 5
-                    dt = dt_utc - timedelta(hours=et_offset)
+                    dt = dt_utc - timedelta(hours=_get_et_offset(dt_utc))
                     game_time = dt.strftime("%I:%M %p") + " ET"
                 except ValueError:
                     game_time = game_date_raw
@@ -292,17 +311,15 @@ def get_lineup(game_id):
         Dict with home_lineup and away_lineup, each a list of player_id ints.
         Returns None if lineups aren't posted yet.
     """
-    data = _api_get(f"/v1.1/game/{game_id}/feed/live".replace("/v1/", "/"))
-    if not data:
-        # Try alternate endpoint format
-        data = _get_session().get(
+    try:
+        resp = _get_session().get(
             f"https://statsapi.mlb.com/api/v1.1/game/{game_id}/feed/live",
             timeout=REQUEST_TIMEOUT
         )
-        try:
-            data = data.json()
-        except Exception:
-            return None
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception:
+        return None
 
     boxscore = data.get("liveData", {}).get("boxscore", {})
     home_order = boxscore.get("teams", {}).get("home", {}).get("battingOrder", [])
@@ -378,8 +395,8 @@ def get_batter_splits(player_id, season=None):
                 result["ops_vs_rhp"] = ops
                 result["ab_vs_rhp"] = ab
 
-    # Fall back to previous season if current season has no data
-    if result["ops_vs_lhp"] is None and result["ops_vs_rhp"] is None and season > 2022:
+    # Fall back to previous season if current season has no data (one level only)
+    if result["ops_vs_lhp"] is None and result["ops_vs_rhp"] is None and season > 2024:
         return get_batter_splits(player_id, season - 1)
 
     return result

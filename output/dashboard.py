@@ -83,7 +83,10 @@ def _gather_dashboard_data(date_str):
             FROM picks p
             WHERE pick_date >= ?
               AND run_type = (
-                SELECT MAX(p2.run_type) FROM picks p2 WHERE p2.game_id = p.game_id
+                SELECT p2.run_type FROM picks p2
+                WHERE p2.game_id = p.game_id
+                ORDER BY CASE p2.run_type WHEN 'lineup_lock' THEN 0 ELSE 1 END
+                LIMIT 1
               )
         """, (f"{SEASON}-01-01",)).fetchone()
 

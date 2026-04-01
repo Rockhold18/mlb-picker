@@ -238,48 +238,18 @@ def _get_platoon_wrc(team_abbr, opposing_starter_id, conn):
     hand = _get_pitcher_hand(opposing_starter_id, conn)
 
     if hand == "L":
-        col = "wrc_plus_vs_lhp"
+        row = conn.execute(
+            "SELECT wrc_plus_vs_lhp FROM team_stats WHERE team_name = ? AND wrc_plus_vs_lhp IS NOT NULL ORDER BY season DESC LIMIT 1",
+            (team_abbr,)
+        ).fetchone()
+        if row and row["wrc_plus_vs_lhp"] is not None:
+            return row["wrc_plus_vs_lhp"]
     elif hand == "R":
-        col = "wrc_plus_vs_rhp"
-    else:
-        return _get_wrc_plus(team_abbr, conn)
+        row = conn.execute(
+            "SELECT wrc_plus_vs_rhp FROM team_stats WHERE team_name = ? AND wrc_plus_vs_rhp IS NOT NULL ORDER BY season DESC LIMIT 1",
+            (team_abbr,)
+        ).fetchone()
+        if row and row["wrc_plus_vs_rhp"] is not None:
+            return row["wrc_plus_vs_rhp"]
 
-    row = conn.execute(
-        f"SELECT {col} FROM team_stats WHERE team_name = ? AND {col} IS NOT NULL ORDER BY season DESC LIMIT 1",
-        (team_abbr,)
-    ).fetchone()
-
-    if row and row[col] is not None:
-        return row[col]
-
-    # Fall back to overall wRC+
     return _get_wrc_plus(team_abbr, conn)
-
-
-def _get_recent_form(team_abbr, game_date, conn):
-    """Get team's recent form: last 10 completed games win% centered on .500.
-
-    Returns a value from -0.5 (lost all 10) to +0.5 (won all 10).
-    Returns 0.0 if insufficient data.
-    """
-    if not game_date:
-        return 0.0
-
-    rows = conn.execute("""
-        SELECT winner, home_team, away_team FROM games
-        WHERE status = 'Final' AND game_date < ?
-          AND (home_team = ? OR away_team = ?)
-        ORDER BY game_date DESC
-        LIMIT 10
-    """, (game_date, team_abbr, team_abbr)).fetchall()
-
-    if len(rows) < 3:
-        return 0.0
-
-    wins = 0
-    for r in rows:
-        if (r["home_team"] == team_abbr and r["winner"] == "home") or \
-           (r["away_team"] == team_abbr and r["winner"] == "away"):
-            wins += 1
-
-    return (wins / len(rows)) - 0.5

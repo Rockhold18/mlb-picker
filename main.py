@@ -15,7 +15,7 @@ from datetime import datetime
 # Ensure project root is on path
 sys.path.insert(0, os.path.dirname(__file__))
 
-from config import SEASON, TEAM_ID_TO_ABBR, ABBR_TO_TEAM_ID
+from config import SEASON, TEAM_ID_TO_ABBR
 from db import init_db, seed_priors, get_row_counts, get_db
 from data.mlb_api import get_schedule, get_pitcher_season_stats, get_all_team_records
 from data.fip import compute_fip_from_stats

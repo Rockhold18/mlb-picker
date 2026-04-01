@@ -61,6 +61,64 @@ def compute_fip_from_stats(pitcher_stats, fip_constant=None):
     )
 
 
+def update_fip_constant_from_api(season=None):
+    """Fetch league-wide pitching totals and compute the FIP constant.
+
+    Pulls from MLB Stats API team pitching stats, sums across all teams,
+    and derives the constant. Updates the module-level cache.
+
+    Returns the computed constant, or DEFAULT_FIP_CONSTANT on failure.
+    """
+    from data.mlb_api import _api_get
+    season = season or SEASON
+
+    data = _api_get("/teams/stats", params={
+        "stats": "season",
+        "season": season,
+        "group": "pitching",
+        "sportIds": 1,
+    })
+
+    if not data:
+        # Try previous season
+        data = _api_get("/teams/stats", params={
+            "stats": "season",
+            "season": season - 1,
+            "group": "pitching",
+            "sportIds": 1,
+        })
+
+    if not data:
+        return DEFAULT_FIP_CONSTANT
+
+    # Sum league totals
+    lg_era = lg_hr = lg_bb = lg_hbp = lg_k = lg_ip = 0
+    for split in data.get("stats", [{}])[0].get("splits", []):
+        s = split.get("stat", {})
+        try:
+            lg_ip += float(s.get("inningsPitched", 0))
+        except (ValueError, TypeError):
+            continue
+        lg_era_val = s.get("era")
+        if lg_era_val:
+            try:
+                lg_era += float(lg_era_val) * float(s.get("inningsPitched", 0))
+            except (ValueError, TypeError):
+                pass
+        lg_hr += s.get("homeRuns", 0)
+        lg_bb += s.get("baseOnBalls", 0)
+        lg_hbp += s.get("hitByPitch", 0)
+        lg_k += s.get("strikeOuts", 0)
+
+    if lg_ip > 0:
+        lg_era = lg_era / lg_ip  # Weighted ERA
+        constant = compute_league_fip_constant(lg_era, lg_hr, lg_bb, lg_hbp, lg_k, lg_ip)
+        logger.info(f"  Computed FIP constant for {season}: {constant}")
+        return constant
+
+    return DEFAULT_FIP_CONSTANT
+
+
 def compute_league_fip_constant(league_era, league_hr, league_bb, league_hbp, league_k, league_ip):
     """Derive the FIP constant from league-wide totals.
 

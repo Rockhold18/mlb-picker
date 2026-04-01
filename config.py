@@ -1,6 +1,21 @@
 """MLB Game Picker configuration."""
 
-SEASON = 2026
+from datetime import datetime
+
+
+def get_current_season():
+    """Derive the MLB season year from the current date.
+
+    MLB seasons run March–October. From November–February, we're in the
+    offseason and should reference the upcoming season.
+    """
+    now = datetime.now()
+    if now.month >= 3:
+        return now.year
+    return now.year  # Jan-Feb: still reference current year for spring training
+
+
+SEASON = get_current_season()
 
 # Confidence thresholds
 HIGH_CONFIDENCE_THRESHOLD = 0.63
