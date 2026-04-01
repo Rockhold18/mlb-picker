@@ -248,7 +248,9 @@ def _print_schedule_summary(games):
             home_sp = f"{g['home_starter_name'][:12]}{home_fip}"
             away_sp = f"{g['away_starter_name'][:12]}{away_fip}"
 
-            print(f"  {g['game_time']:<10} {matchup:<22} {home_sp:<16} {away_sp:<16}")
+            from model.predict import _format_time_12h
+            display_time = _format_time_12h(g['game_time'])
+            print(f"  {display_time:<12} {matchup:<22} {home_sp:<16} {away_sp:<16}")
 
     print(f"{'─'*60}")
     print(f"  Total games: {len(games)}\n")

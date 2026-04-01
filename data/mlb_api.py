@@ -95,14 +95,15 @@ def get_schedule(date_str):
             home_starter = home.get("probablePitcher", {})
             away_starter = away.get("probablePitcher", {})
 
-            # Parse game time (UTC → ET, which is UTC-4 during DST, UTC-5 otherwise)
+            # Parse game time (UTC → ET)
+            # Store in 24-hour format (HH:MM) for proper sorting
             game_date_raw = game.get("gameDate", "")
             game_time = ""
             if game_date_raw:
                 try:
                     dt_utc = datetime.strptime(game_date_raw, "%Y-%m-%dT%H:%M:%SZ")
                     dt = dt_utc - timedelta(hours=_get_et_offset(dt_utc))
-                    game_time = dt.strftime("%I:%M %p") + " ET"
+                    game_time = dt.strftime("%H:%M")  # 24-hour for sorting
                 except ValueError:
                     game_time = game_date_raw
 

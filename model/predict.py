@@ -283,7 +283,8 @@ def print_predictions(picks, date_str, run_type="morning"):
             conf_display = conf
 
         matchup = f"{p['away_team']} @ {p['home_team']}"
-        print(f"  {p['game_time']:<10} {matchup:<18} → {p['predicted_winner']:<5} {prob_display:>5}  {conf_display}")
+        display_time = _format_time_12h(p['game_time'])
+        print(f"  {display_time:<12} {matchup:<18} → {p['predicted_winner']:<5} {prob_display:>5}  {conf_display}")
 
     print(f"  {'─'*55}")
     print(f"  High-confidence picks: {high_count} | Total games: {len(picks)}")
@@ -291,6 +292,23 @@ def print_predictions(picks, date_str, run_type="morning"):
     if opener_games:
         print(f"  ⚠ Opener detected in {len(opener_games)} game(s) — confidence dampened")
     print()
+
+
+def _format_time_12h(t):
+    """Convert 24-hour HH:MM to 12-hour display with ET."""
+    if not t or "AM" in t or "PM" in t:
+        return t or ""
+    try:
+        parts = t.split(":")
+        h, m = int(parts[0]), parts[1]
+        ampm = "PM" if h >= 12 else "AM"
+        if h > 12:
+            h -= 12
+        if h == 0:
+            h = 12
+        return f"{h}:{m} {ampm} ET"
+    except (ValueError, IndexError):
+        return t
 
 
 # Opener detection thresholds

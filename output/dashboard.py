@@ -610,6 +610,20 @@ function truncName(name, max) {
     return name.length > max ? name.substring(0, max) + '.' : name;
 }
 
+function formatTime(t) {
+    if (!t) return '';
+    // Convert 24-hour "HH:MM" to "H:MM PM ET", pass through if already formatted
+    if (t.includes('AM') || t.includes('PM')) return t;
+    const parts = t.split(':');
+    if (parts.length !== 2) return t;
+    let h = parseInt(parts[0]);
+    const m = parts[1];
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    if (h > 12) h -= 12;
+    if (h === 0) h = 12;
+    return h + ':' + m + ' ' + ampm + ' ET';
+}
+
 const PARK_FACTORS = {
     "COL": 1.32, "ARI": 1.09, "BOS": 1.08, "CIN": 1.07, "TEX": 1.06,
     "CHC": 1.05, "PHI": 1.04, "ATL": 1.03, "MIL": 1.02, "TOR": 1.02,
@@ -826,7 +840,7 @@ function renderTodayTab() {
         html += `
         <div class="pick-card ${conf}" data-confidence="${p.confidence}">
             <div class="card-header">
-                <span class="card-time">${p.game_time || ''} &bull; ${p.venue || ''}</span>
+                <span class="card-time">${formatTime(p.game_time)} &bull; ${p.venue || ''}</span>
                 <span class="card-confidence conf-${conf}">${p.confidence}</span>
             </div>
             <div class="card-matchup">
@@ -993,7 +1007,7 @@ function renderHistoryCards() {
         html += `
         <div class="pick-card ${conf}">
             <div class="card-header">
-                <span class="card-time">${p.game_time || ''}</span>
+                <span class="card-time">${formatTime(p.game_time)}</span>
                 <span class="card-confidence conf-${conf}">${p.confidence}</span>
             </div>
             <div class="card-matchup">
