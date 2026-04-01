@@ -68,10 +68,14 @@ def run_lineup_lock(date_str=None):
     Only processes games starting in the next ~3 hours that haven't been locked yet.
     """
     date_str = date_str or datetime.now().strftime("%Y-%m-%d")
-    now = datetime.now()
+
+    # Convert UTC now to ET for proper window comparison
+    from data.mlb_api import _get_et_offset
+    now_utc = datetime.utcnow()
+    now_et = now_utc - timedelta(hours=_get_et_offset(now_utc))
 
     print(f"\n{'='*55}")
-    print(f"  LINEUP LOCK — {date_str} ({now.strftime('%I:%M %p')})")
+    print(f"  LINEUP LOCK — {date_str} ({now_et.strftime('%I:%M %p')} ET)")
     print(f"{'='*55}")
 
     init_db()
@@ -88,7 +92,7 @@ def run_lineup_lock(date_str=None):
 
         # Determine which games to process:
         # Games starting in the next 3 hours that don't have a lineup_lock pick yet
-        window_end = now + timedelta(hours=3)
+        window_end = now_et + timedelta(hours=3)
         games_to_lock = []
 
         for g in games:
@@ -100,8 +104,7 @@ def run_lineup_lock(date_str=None):
             if existing:
                 continue
 
-            # Parse game time to determine if it's in our window
-            # Game times are stored as "HH:MM PM ET" — parse them
+            # Parse game time (stored as 24-hour HH:MM in ET)
             game_time_str = g["game_time"] or ""
             game_dt = _parse_game_time(game_time_str, date_str)
 
@@ -280,11 +283,18 @@ def run_results(date_str=None):
 
 
 def _parse_game_time(time_str, date_str):
-    """Parse a game time like '07:05 PM ET' into a datetime."""
+    """Parse a game time into a datetime. Handles both 24-hour 'HH:MM' and 12-hour 'HH:MM PM ET'."""
+    if not time_str:
+        return None
     try:
         time_str = time_str.replace(" ET", "").strip()
-        dt = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %I:%M %p")
-        return dt
+        # Try 24-hour format first (current storage format)
+        try:
+            return datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
+        except ValueError:
+            pass
+        # Fall back to 12-hour format (legacy)
+        return datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %I:%M %p")
     except (ValueError, AttributeError):
         return None
 
