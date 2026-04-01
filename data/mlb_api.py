@@ -120,6 +120,11 @@ def get_schedule(date_str):
                 if home_score is not None and away_score is not None:
                     winner = "home" if home_score > away_score else "away"
 
+            # Venue info
+            venue_info = game.get("venue", {})
+            venue_name = venue_info.get("name", "")
+            roof_type = venue_info.get("fieldInfo", {}).get("roofType", "")
+
             games.append({
                 "game_id": str(game.get("gamePk", "")),
                 "game_date": date_str,
@@ -132,7 +137,8 @@ def get_schedule(date_str):
                 "home_starter_name": home_starter.get("fullName", "TBD"),
                 "away_starter_name": away_starter.get("fullName", "TBD"),
                 "game_time": game_time,
-                "venue": game.get("venue", {}).get("name", ""),
+                "venue": venue_name,
+                "roof_type": roof_type,
                 "status": status,
                 "home_score": home_score,
                 "away_score": away_score,
@@ -292,6 +298,43 @@ def get_all_team_records(season=None):
                     "losses": team_record.get("losses", 0),
                 }
     return records
+
+
+def get_game_weather(game_id):
+    """Get weather data for a game from the live feed.
+
+    Returns:
+        Dict with temp, wind, condition, roof_type — or None if unavailable.
+    """
+    try:
+        resp = _get_session().get(
+            f"https://statsapi.mlb.com/api/v1.1/game/{game_id}/feed/live",
+            timeout=REQUEST_TIMEOUT
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception:
+        return None
+
+    game_data = data.get("gameData", {})
+    weather = game_data.get("weather", {})
+    venue = game_data.get("venue", {})
+
+    if not weather:
+        return None
+
+    temp_str = weather.get("temp", "")
+    try:
+        temp = int(temp_str)
+    except (ValueError, TypeError):
+        temp = None
+
+    return {
+        "temp": temp,
+        "wind": weather.get("wind", ""),
+        "condition": weather.get("condition", ""),
+        "roof_type": venue.get("fieldInfo", {}).get("roofType", ""),
+    }
 
 
 def get_game_results(date_str):

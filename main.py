@@ -15,7 +15,7 @@ from datetime import datetime
 # Ensure project root is on path
 sys.path.insert(0, os.path.dirname(__file__))
 
-from config import SEASON, TEAM_ID_TO_ABBR
+from config import SEASON, TEAM_ID_TO_ABBR, REQUEST_DELAY
 from db import init_db, seed_priors, get_row_counts, get_db
 from data.mlb_api import get_schedule, get_pitcher_season_stats, get_all_team_records
 from data.fip import compute_fip_from_stats
@@ -50,20 +50,40 @@ def refresh_data(date_str, season=None):
 
         print(f"  Found {len(games)} games\n")
 
-        # Insert games into DB
+        # Insert games into DB and fetch weather
+        from data.mlb_api import get_game_weather
+        import time as _time
         for g in games:
+            # Fetch weather for non-final games at open-air parks
+            weather_temp = None
+            weather_wind = None
+            weather_condition = None
+            roof_type = g.get("roof_type", "")
+
+            if g["status"] != "Final" and roof_type in ("Open", "Retractable", ""):
+                weather = get_game_weather(g["game_id"])
+                if weather:
+                    weather_temp = weather.get("temp")
+                    weather_wind = weather.get("wind")
+                    weather_condition = weather.get("condition")
+                    if not roof_type:
+                        roof_type = weather.get("roof_type", "")
+                    _time.sleep(REQUEST_DELAY)
+
             conn.execute("""
                 INSERT OR REPLACE INTO games
                 (game_id, game_date, home_team, away_team, home_team_id, away_team_id,
                  home_starter_id, away_starter_id, home_starter_name, away_starter_name,
-                 game_time, venue, home_score, away_score, winner, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 game_time, venue, roof_type, weather_temp, weather_wind, weather_condition,
+                 home_score, away_score, winner, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 g["game_id"], g["game_date"], g["home_team"], g["away_team"],
                 g["home_team_id"], g["away_team_id"],
                 g["home_starter_id"], g["away_starter_id"],
                 g["home_starter_name"], g["away_starter_name"],
-                g["game_time"], g["venue"],
+                g["game_time"], g["venue"], roof_type,
+                weather_temp, weather_wind, weather_condition,
                 g["home_score"], g["away_score"], g["winner"], g["status"],
             ))
 

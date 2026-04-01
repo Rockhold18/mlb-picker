@@ -23,7 +23,7 @@ from db import init_db, seed_priors, get_db
 from data.mlb_api import get_schedule, get_pitcher_season_stats, get_all_team_records
 from data.fip import compute_fip_from_stats
 from data.fangraphs import refresh_fangraphs_stats
-from data.lineups import fetch_and_cache_lineup_splits
+from data.lineups import fetch_and_cache_lineup, LINEUP_WEAK_THRESHOLD, LINEUP_DAMPEN_FACTOR
 from model.predict import predict_games, print_predictions, load_model
 from model.features import build_feature_vector, FEATURE_NAMES
 from output.dashboard import generate_dashboard
@@ -123,11 +123,10 @@ def run_lineup_lock(date_str=None):
         updated_picks = []
 
         for g in games_to_lock:
-            lineup_data = fetch_and_cache_lineup_splits(g["game_id"], conn, SEASON)
+            lineup_data = fetch_and_cache_lineup(g["game_id"], conn, SEASON)
 
             if not lineup_data:
                 print(f"  {g['away_team']} @ {g['home_team']}: lineups not available, using morning pick")
-                # Copy morning pick as lineup_lock
                 morning = conn.execute(
                     "SELECT * FROM picks WHERE game_id = ? AND run_type = 'morning'",
                     (g["game_id"],)
@@ -135,10 +134,11 @@ def run_lineup_lock(date_str=None):
                 if morning:
                     conn.execute("""
                         INSERT OR REPLACE INTO picks
-                        (game_id, pick_date, run_type, predicted_winner, home_win_prob, confidence)
-                        VALUES (?, ?, 'lineup_lock', ?, ?, ?)
+                        (game_id, pick_date, run_type, predicted_winner, home_win_prob, confidence, opener_flag)
+                        VALUES (?, ?, 'lineup_lock', ?, ?, ?, ?)
                     """, (g["game_id"], date_str, morning["predicted_winner"],
-                          morning["home_win_prob"], morning["confidence"]))
+                          morning["home_win_prob"], morning["confidence"],
+                          morning["opener_flag"] if "opener_flag" in morning.keys() else None))
                     locked += 1
                 continue
 
@@ -147,18 +147,35 @@ def run_lineup_lock(date_str=None):
             if feats is None:
                 continue
 
-            # Override platoon_wrc_diff with actual lineup OPS if available
-            if lineup_data["home_lineup_ops"] and lineup_data["away_lineup_ops"]:
-                # Scale OPS diff to roughly match wRC+ diff magnitude
-                # OPS ~0.700-0.800, wRC+ ~80-120, so multiply OPS diff by ~150
-                ops_diff = (lineup_data["home_lineup_ops"] - lineup_data["away_lineup_ops"]) * 150
+            # Override platoon_wrc_diff with actual weighted lineup OPS
+            home_ld = lineup_data.get("home", {})
+            away_ld = lineup_data.get("away", {})
+            if home_ld.get("lineup_ops") and away_ld.get("lineup_ops"):
+                ops_diff = (home_ld["lineup_ops"] - away_ld["lineup_ops"]) * 150
                 feats["platoon_wrc_diff"] = ops_diff
-                logger.info(f"  {g['away_team']} @ {g['home_team']}: lineup OPS {lineup_data['away_lineup_ops']:.3f} vs {lineup_data['home_lineup_ops']:.3f}")
+                logger.info(f"  {g['away_team']} @ {g['home_team']}: lineup OPS "
+                           f"{away_ld['lineup_ops']:.3f} vs {home_ld['lineup_ops']:.3f}")
 
             # Predict
             feat_df = pd.DataFrame([feats])[FEATURE_NAMES].fillna(0)
             feat_scaled = scaler.transform(feat_df)
             home_win_prob = model.predict_proba(feat_scaled)[0][1]
+
+            # Dampen for weakened lineups
+            lineup_flags = []
+            for side, ld, team in [("home", home_ld, g["home_team"]), ("away", away_ld, g["away_team"])]:
+                if ld.get("is_weakened"):
+                    pct = ld["lineup_pct_change"]
+                    missing = ld.get("missing_regulars", [])
+                    missing_names = ", ".join(m["player_name"] for m in missing[:2])
+                    logger.info(f"    {team} lineup weakened ({pct:+.1%})"
+                               f"{' — missing: ' + missing_names if missing_names else ''}")
+                    lineup_flags.append(f"{team} weakened")
+
+            if lineup_flags:
+                dampened = 0.5 + (home_win_prob - 0.5) * (1 - LINEUP_DAMPEN_FACTOR)
+                logger.info(f"    Lineup dampening: {home_win_prob:.0%} → {dampened:.0%}")
+                home_win_prob = dampened
 
             from config import HIGH_CONFIDENCE_THRESHOLD, MEDIUM_CONFIDENCE_THRESHOLD
             if home_win_prob >= 0.5:
@@ -177,19 +194,20 @@ def run_lineup_lock(date_str=None):
 
             # Check if pick changed from morning
             morning = conn.execute(
-                "SELECT predicted_winner FROM picks WHERE game_id = ? AND run_type = 'morning'",
+                "SELECT predicted_winner, opener_flag FROM picks WHERE game_id = ? AND run_type = 'morning'",
                 (g["game_id"],)
             ).fetchone()
             changed = morning and morning["predicted_winner"] != predicted_winner
             change_marker = " ** CHANGED **" if changed else ""
+            opener_flag = morning["opener_flag"] if morning and "opener_flag" in morning.keys() else None
 
             print(f"  {g['away_team']} @ {g['home_team']}: {predicted_winner} {pick_prob:.0%} {confidence}{change_marker}")
 
             conn.execute("""
                 INSERT OR REPLACE INTO picks
-                (game_id, pick_date, run_type, predicted_winner, home_win_prob, confidence)
-                VALUES (?, ?, 'lineup_lock', ?, ?, ?)
-            """, (g["game_id"], date_str, predicted_winner, round(home_win_prob, 4), confidence))
+                (game_id, pick_date, run_type, predicted_winner, home_win_prob, confidence, opener_flag)
+                VALUES (?, ?, 'lineup_lock', ?, ?, ?, ?)
+            """, (g["game_id"], date_str, predicted_winner, round(home_win_prob, 4), confidence, opener_flag))
             locked += 1
 
     # Regenerate dashboard

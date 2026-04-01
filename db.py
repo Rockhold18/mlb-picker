@@ -20,11 +20,28 @@ CREATE TABLE IF NOT EXISTS games (
     away_starter_name TEXT,
     game_time TEXT,
     venue TEXT,
+    roof_type TEXT,
+    weather_temp INTEGER,
+    weather_wind TEXT,
+    weather_condition TEXT,
     home_score INTEGER,
     away_score INTEGER,
     winner TEXT,
     status TEXT,
     created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS game_lineups (
+    game_id TEXT,
+    team TEXT,
+    player_id INTEGER,
+    lineup_position INTEGER,
+    player_name TEXT,
+    bat_side TEXT,
+    ops_vs_lhp REAL,
+    ops_vs_rhp REAL,
+    lineup_date TEXT,
+    PRIMARY KEY (game_id, team, lineup_position)
 );
 
 CREATE TABLE IF NOT EXISTS pitcher_stats (
@@ -100,6 +117,7 @@ CREATE INDEX IF NOT EXISTS idx_picks_date ON picks(pick_date);
 CREATE INDEX IF NOT EXISTS idx_picks_game_id ON picks(game_id);
 CREATE INDEX IF NOT EXISTS idx_pitcher_stats_player ON pitcher_stats(player_id);
 CREATE INDEX IF NOT EXISTS idx_team_stats_name ON team_stats(team_name);
+CREATE INDEX IF NOT EXISTS idx_lineups_team_date ON game_lineups(team, lineup_date);
 """
 
 

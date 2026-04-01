@@ -41,7 +41,9 @@ def _gather_dashboard_data(date_str):
         # Today's picks with game info (use subqueries to avoid cartesian product)
         today_picks = conn.execute("""
             SELECT p.*, g.home_team, g.away_team, g.home_starter_name, g.away_starter_name,
-                   g.game_time, g.venue, g.home_score, g.away_score, g.winner as game_winner,
+                   g.game_time, g.venue, g.roof_type,
+                   g.weather_temp, g.weather_wind, g.weather_condition,
+                   g.home_score, g.away_score, g.winner as game_winner,
                    g.status,
                    (SELECT fip FROM pitcher_stats WHERE player_id = g.home_starter_id ORDER BY season DESC LIMIT 1) as home_fip,
                    (SELECT era FROM pitcher_stats WHERE player_id = g.home_starter_id ORDER BY season DESC LIMIT 1) as home_era,
@@ -691,6 +693,39 @@ function buildReasoning(p, isHomePick) {
             seriesFavors = (pick === g1Winner) ? 'pick' : 'against';
         }
         factors.push({ label: seriesLabel, favors: seriesFavors, strength: 0.5, maxStrength: 1 });
+    }
+
+    // 7. Weather (open-air parks only)
+    if (p.weather_wind && p.roof_type !== 'Dome') {
+        const wind = p.weather_wind;
+        const temp = p.weather_temp;
+        let weatherLabel = '';
+        let weatherFavors = 'neutral';
+
+        if (wind && wind.toLowerCase().includes('out')) {
+            const speedMatch = wind.match(/(\d+)/);
+            const speed = speedMatch ? parseInt(speedMatch[1]) : 0;
+            if (speed >= 15) {
+                weatherLabel = `Wind: ${wind} ⚠ (offense boost)`;
+            } else if (speed >= 8) {
+                weatherLabel = `Wind: ${wind}`;
+            }
+        } else if (wind && wind.toLowerCase().includes('in')) {
+            const speedMatch = wind.match(/(\d+)/);
+            const speed = speedMatch ? parseInt(speedMatch[1]) : 0;
+            if (speed >= 10) {
+                weatherLabel = `Wind: ${wind} (pitching boost)`;
+            }
+        }
+
+        if (!weatherLabel && temp) {
+            if (temp <= 45) weatherLabel = `Cold: ${temp}°F — grip/offense affected`;
+            else if (temp >= 95) weatherLabel = `Hot: ${temp}°F — ball carries`;
+        }
+
+        if (weatherLabel) {
+            factors.push({ label: weatherLabel, favors: weatherFavors, strength: 0, maxStrength: 1 });
+        }
     }
 
     if (factors.length === 0) return '';
