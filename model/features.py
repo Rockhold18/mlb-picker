@@ -16,8 +16,6 @@ FEATURE_NAMES = [
     "fip_diff",            # home starter FIP - away starter FIP (negative = home advantage)
     "home_flag",           # always 1 (model learns home field advantage weight)
     "team_quality_diff",   # blended win% difference (home - away)
-    "bullpen_era_diff",    # home bullpen ERA - away bullpen ERA (negative = home advantage)
-    "platoon_wrc_diff",    # home team wRC+ vs starter hand - away team wRC+ vs starter hand
     "park_factor",         # park run environment (>1 = hitter friendly, <1 = pitcher friendly)
     "home_offense_trend",  # home team recent runs scored vs season avg (+ = hot, - = cold)
     "away_offense_trend",  # away team recent runs scored vs season avg
@@ -62,26 +60,10 @@ def build_feature_vector(game_row, conn=None):
         away_quality = _get_team_quality(game_row["away_team"], game_date, month, conn)
         features["team_quality_diff"] = home_quality - away_quality
 
-        # 4. Bullpen ERA differential
-        home_bp = _get_bullpen_era(game_row["home_team"], conn)
-        away_bp = _get_bullpen_era(game_row["away_team"], conn)
-        if home_bp is not None and away_bp is not None:
-            features["bullpen_era_diff"] = home_bp - away_bp
-        else:
-            features["bullpen_era_diff"] = 0.0
-
-        # 5. Platoon wRC+ differential (team batting vs opposing starter's hand)
-        home_platoon = _get_platoon_wrc(game_row["home_team"], game_row["away_starter_id"], conn)
-        away_platoon = _get_platoon_wrc(game_row["away_team"], game_row["home_starter_id"], conn)
-        if home_platoon is not None and away_platoon is not None:
-            features["platoon_wrc_diff"] = home_platoon - away_platoon
-        else:
-            features["platoon_wrc_diff"] = 0.0
-
-        # 6. Park factor
+        # 4. Park factor
         features["park_factor"] = _get_park_factor(game_row)
 
-        # 7-8. Offense trends (rolling 7-game runs scored vs season average)
+        # 5-6. Offense trends (rolling 7-game runs scored vs season average)
         game_date = game_row["game_date"]
         features["home_offense_trend"] = _get_offense_trend(game_row["home_team"], game_date, conn)
         features["away_offense_trend"] = _get_offense_trend(game_row["away_team"], game_date, conn)
@@ -181,7 +163,7 @@ def _get_team_quality(team_abbr, game_date, month, conn):
     Requires at least 10 games before blending in actual records to avoid
     extreme swings from small samples (e.g., 1-0 = 100% win rate).
     """
-    MIN_GAMES_FOR_BLEND = 10
+    MIN_GAMES_FOR_BLEND = 5
     prior_weight = PRIOR_WEIGHT_BY_MONTH.get(month, 0.15)
 
     projected_wins = WIN_TOTAL_PRIORS.get(team_abbr, 81)

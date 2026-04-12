@@ -66,11 +66,11 @@ def train_model(train_start=2022, train_end=2024, val_start=2025, val_end=2025):
     train_X = scaler.fit_transform(train_df)
     val_X = scaler.transform(val_df)
 
-    # Train logistic regression
+    # Train logistic regression (C=0.5 increases regularization to spread weight across features)
     model = LogisticRegression(
         class_weight="balanced",
         max_iter=1000,
-        C=1.0,
+        C=0.5,
         random_state=42,
     )
     model.fit(train_X, train_y)

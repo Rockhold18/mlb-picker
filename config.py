@@ -18,14 +18,14 @@ def get_current_season():
 SEASON = get_current_season()
 
 # Confidence thresholds
-HIGH_CONFIDENCE_THRESHOLD = 0.63
+HIGH_CONFIDENCE_THRESHOLD = 0.67
 MEDIUM_CONFIDENCE_THRESHOLD = 0.55
 
 # Prior weight schedule: how much to weight preseason projections vs actual record
 # Fades as the season progresses and actual data becomes more reliable
 PRIOR_WEIGHT_BY_MONTH = {
-    3: 0.80, 4: 0.70, 5: 0.55, 6: 0.40,
-    7: 0.30, 8: 0.20, 9: 0.15, 10: 0.10,
+    3: 0.70, 4: 0.50, 5: 0.35, 6: 0.25,
+    7: 0.15, 8: 0.10, 9: 0.05, 10: 0.05,
 }
 
 # MLB Stats API
