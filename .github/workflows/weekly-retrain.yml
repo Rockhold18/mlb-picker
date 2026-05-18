@@ -93,7 +93,10 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git checkout -b "$BRANCH"
-          git add model/trained_model.pkl model/scaler.pkl model/archive/ model/retrain_report.json
+          # -f because model/retrain_report.json and model/archive/ are gitignored
+          # locally (avoids noise in local git status) but we want them in the PR
+          # for the audit trail and rollback safety.
+          git add -f model/trained_model.pkl model/scaler.pkl model/archive/ model/retrain_report.json
           git commit -m "Weekly retrain: ${DATE_TAG}
 
           Candidate accuracy: ${{ steps.report.outputs.accuracy }}
