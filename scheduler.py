@@ -25,7 +25,10 @@ from data.fip import compute_fip_from_stats
 from data.fangraphs import refresh_fangraphs_stats
 from data.lineups import fetch_and_cache_lineup, LINEUP_WEAK_THRESHOLD, LINEUP_DAMPEN_FACTOR
 from model.predict import predict_games, print_predictions, load_model, _is_probable_opener
-from model.features import build_feature_vector, FEATURE_NAMES
+from model.features import (
+    build_feature_vector, FEATURE_NAMES,
+    compute_signals, away_overconfidence_damping,
+)
 from output.dashboard import generate_dashboard
 
 logging.basicConfig(
@@ -182,6 +185,14 @@ def run_lineup_lock(date_str=None):
                     opener_flag = "away"
                 logger.info(f"    Opener detected ({opener_flag}): "
                             f"prob {pre_dampen:.0%} → {home_win_prob:.0%}")
+
+            # Away-team overconfidence correction (see model/signal_damping_experiment.py)
+            signals = compute_signals(g, conn)
+            pre_signal = home_win_prob
+            home_win_prob = away_overconfidence_damping(home_win_prob, signals)
+            if pre_signal != home_win_prob:
+                logger.info(f"    Away-overconfidence damping: "
+                            f"prob {pre_signal:.0%} → {home_win_prob:.0%}")
 
             # Dampen for weakened lineups
             lineup_flags = []

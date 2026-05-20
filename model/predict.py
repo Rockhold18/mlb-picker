@@ -14,7 +14,10 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from config import HIGH_CONFIDENCE_THRESHOLD, MEDIUM_CONFIDENCE_THRESHOLD, SEASON
 from db import get_db
-from model.features import build_training_features, build_feature_vector, FEATURE_NAMES
+from model.features import (
+    build_training_features, build_feature_vector, FEATURE_NAMES,
+    compute_signals, away_overconfidence_damping,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -207,6 +210,15 @@ def predict_games(date_str, run_type="morning"):
                 logger.info(f"  Opener detected ({opener_flag}): {game['away_team']} @ {game['home_team']} — "
                            f"prob {home_win_prob:.0%} → {dampened:.0%}")
                 home_win_prob = dampened
+
+            # Away-team overconfidence correction (see model/signal_damping_experiment.py).
+            # Empirically the model overrates away HIGH picks; damp by signal support.
+            signals = compute_signals(game, conn)
+            pre_signal = home_win_prob
+            home_win_prob = away_overconfidence_damping(home_win_prob, signals)
+            if pre_signal != home_win_prob:
+                logger.info(f"  Away-overconfidence damping: {game['away_team']} @ {game['home_team']} — "
+                           f"prob {pre_signal:.0%} → {home_win_prob:.0%}")
 
             # Determine pick and confidence
             if home_win_prob >= 0.5:

@@ -290,6 +290,113 @@ def _get_offense_trend(team_abbr, game_date, conn):
     return round(recent_avg - season_avg, 2)
 
 
+def compute_signals(game_row, conn, season=None):
+    """Compute the 5 underlying signals used by the away-overconfidence damping rule.
+
+    Each signal reports which side ('home', 'away', or None) the metric favors.
+    A None means the metric is tied within a small threshold or the data is missing.
+
+    Signals:
+      - record:  who has the better blended team_quality (W-L)
+      - fip:     who has the lower (better) blended starter FIP
+      - bullpen: who has the lower bullpen ERA
+      - wrc:     who has the higher wRC+ (offense)
+      - form:    who's hotter on recent offense trend
+
+    Returns:
+        Dict mapping signal name → 'home' | 'away' | None
+    """
+    if season is None:
+        season = int(game_row["game_date"][:4]) if game_row["game_date"] else SEASON
+    month = int(game_row["game_date"][5:7]) if game_row["game_date"] else 6
+
+    signals = {}
+
+    # Record edge
+    home_q = _get_team_quality(game_row["home_team"], game_row["game_date"], month, conn)
+    away_q = _get_team_quality(game_row["away_team"], game_row["game_date"], month, conn)
+    signals["record"] = None if abs(home_q - away_q) < 0.005 else ("home" if home_q > away_q else "away")
+
+    # FIP edge — lower is better
+    h_fip = _get_pitcher_fip(game_row["home_starter_id"], game_row["home_team"], conn)
+    a_fip = _get_pitcher_fip(game_row["away_starter_id"], game_row["away_team"], conn)
+    if h_fip is None or a_fip is None or abs(h_fip - a_fip) < 0.10:
+        signals["fip"] = None
+    else:
+        signals["fip"] = "home" if h_fip < a_fip else "away"
+
+    # Bullpen edge — lower ERA is better
+    h_bp = _get_bullpen_era(game_row["home_team"], conn, season=season)
+    a_bp = _get_bullpen_era(game_row["away_team"], conn, season=season)
+    if h_bp is None or a_bp is None or abs(h_bp - a_bp) < 0.15:
+        signals["bullpen"] = None
+    else:
+        signals["bullpen"] = "home" if h_bp < a_bp else "away"
+
+    # wRC+ edge — higher is better
+    h_wrc = _get_wrc_plus(game_row["home_team"], conn, season=season)
+    a_wrc = _get_wrc_plus(game_row["away_team"], conn, season=season)
+    if h_wrc is None or a_wrc is None or abs(h_wrc - a_wrc) < 2.0:
+        signals["wrc"] = None
+    else:
+        signals["wrc"] = "home" if h_wrc > a_wrc else "away"
+
+    # Recent form edge
+    h_trend = _get_offense_trend(game_row["home_team"], game_row["game_date"], conn)
+    a_trend = _get_offense_trend(game_row["away_team"], game_row["game_date"], conn)
+    signals["form"] = None if abs(h_trend - a_trend) < 0.3 else ("home" if h_trend > a_trend else "away")
+
+    return signals
+
+
+def count_supporting_signals(signals, picked_side):
+    """Given a signal dict and a picked side, return count of signals supporting that side.
+
+    None signals (no edge / no data) do not count for or against.
+    """
+    return sum(1 for s in signals.values() if s == picked_side)
+
+
+def away_overconfidence_damping(home_win_prob, signals):
+    """Apply the away-team-favorite overconfidence correction.
+
+    Empirically validated rule (see model/signal_damping_experiment.py): when the
+    model picks the AWAY team with HIGH confidence (>=63%) and 3+ of 5 underlying
+    signals support that pick, the model systematically overrates the away team.
+    Training data (2022-2024, n=251 at 5/5): +10.1pp overprediction. The 2025
+    holdout confirms direction at 4/5 (+5pp) and 2-3/5 (+12.5pp).
+
+    Damping factor by supporting-signal count (away picks only, HIGH tier only):
+       3/5: 0.05    (gentle nudge)
+       4/5: 0.10    (moderate)
+       5/5: 0.20    (strong — largest training-data overprediction)
+
+    Args:
+        home_win_prob: P(home team wins) from the model
+        signals: dict from compute_signals()
+
+    Returns:
+        Adjusted home_win_prob (only changed if pick is away + HIGH tier + 3+/5 support)
+    """
+    picked_side = "home" if home_win_prob >= 0.5 else "away"
+    pick_prob = home_win_prob if picked_side == "home" else 1 - home_win_prob
+
+    # Only damp away picks at HIGH tier
+    if picked_side != "away" or pick_prob < 0.63:
+        return home_win_prob
+
+    supporting = count_supporting_signals(signals, "away")
+    damping_by_count = {3: 0.05, 4: 0.10, 5: 0.20}
+    d = damping_by_count.get(supporting, 0.0)
+    if d == 0.0:
+        return home_win_prob
+
+    # Shrink the away pick probability toward 50%; equivalently, push home_win_prob
+    # toward 50% from below.
+    damped_pick = 0.5 + (pick_prob - 0.5) * (1 - d)
+    return 1 - damped_pick  # convert back to home_win_prob
+
+
 def _get_platoon_wrc(team_abbr, opposing_starter_id, conn, season=None):
     """Get team's wRC+ against the opposing starter's throwing hand.
 

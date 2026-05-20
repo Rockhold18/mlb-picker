@@ -5,6 +5,32 @@ Most-recent additions at the top.
 
 ---
 
+## Away-team overconfidence damping — SHIPPED 2026-05-20
+
+Backtest of 2022-2024 revealed a systematic pattern: the model overrates away-team
+HIGH picks by ~10pp when all 5 signals (record, FIP, bullpen, wRC+, form) support
+the pick. Home picks at the same signal-count level are well-calibrated.
+
+Shipped rule (`away_overconfidence_damping` in `model/features.py`): for away picks
+at HIGH tier (>=63%) with 3+/5 signals supporting, shrink toward 50% by:
+  - 3/5 supporting: 5%
+  - 4/5 supporting: 10%
+  - 5/5 supporting: 20%
+
+Validation (2025 holdout, n=2428): HIGH-tier accuracy +0.8pp (67.4% → 68.2%),
+Brier improved 0.2405 → 0.2403. About 12% of historical HIGH picks would have
+been downgraded from HIGH to MEDIUM.
+
+Applied at both morning (`model/predict.py`) and lineup_lock (`scheduler.py`).
+Experiment script retained: `model/signal_damping_experiment.py`.
+
+**Key finding it does NOT address:** the data didn't have enough away HIGH picks
+with 0-2/5 signals to fit a rule for those. Today's 2026-05-19 ATL @ MIA pick
+(HIGH at 1/5 signals) is exactly the sort of case my intuition flagged but the
+training data couldn't validate. Option D (XGBoost) may pick this up natively.
+
+---
+
 ## lineup_lock pipeline bugs — 1 of 4 fixed 2026-05-19
 
 Found during a "what data are we missing?" audit. lineup_lock was supposed to be the
